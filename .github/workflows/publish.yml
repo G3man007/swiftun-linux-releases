@@ -1,0 +1,42 @@
+name: Publish
+
+# The private build repository pushes a branch upload/<tag> with the files in dist/.
+# This job turns it into a release and deletes the branch, so installers never stay in git history.
+on:
+  push:
+    branches:
+      - "upload/**"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#upload/}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists" >&2
+            exit 1
+          fi
+          # notes.md and title.txt describe the release and are not attached to it.
+          title="SwifTun Linux ${tag#v}"
+          if [ -f dist/title.txt ]; then title="$(cat dist/title.txt)"; fi
+          files=()
+          for file in dist/*; do
+            case "$(basename "$file")" in notes.md|title.txt) ;; *) files+=("$file") ;; esac
+          done
+          gh release create "$tag" "${files[@]}" \
+            --target main \
+            --title "$title" \
+            --notes-file dist/notes.md \
+            --latest
+      - name: Delete upload branch
+        if: always()
+        run: git push origin --delete "$GITHUB_REF_NAME"
